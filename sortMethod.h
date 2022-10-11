@@ -309,11 +309,17 @@ void sortGroupParl(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddrTemp
             (ptrBaseAddr + j)->recordPtr = recordBaseAddr + i * mem_num + j;
         }
 
-        //quickSortParl<KeyPtrPair>(ptrBaseAddr, sort_num, numThreads);
-        PARADIS(ptrBaseAddr, ptrBaseAddr + sort_num, numThreads);
+        quickSortParl<KeyPtrPair>(ptrBaseAddr, sort_num, numThreads);
+        //PARADIS(ptrBaseAddr, ptrBaseAddr + sort_num, numThreads);
 
         // store into NVM
         pmem_memcpy_nodrain(sortedBaseAddrTemp + i * mem_num, ptrBaseAddr, sort_num * sizeof(KeyPtrPair));
+
+        // print sorted grps
+        // for (int j = 0; j < sort_num; j++) {
+        //     cout << (ptrBaseAddr + j)->key << endl;
+        // }
+        // cout << endl;
         
         left_num -= sort_num;
         if (left_num == 0) {
@@ -371,91 +377,325 @@ void mergeGroup(T *ptrBaseAddr, T* sortedBaseAddr, T *sortedBaseAddrTemp, int to
     return;
 }
 
+/* method 4 && 11*/
+/* k-way merge using min-heap */
 
-/* method 4*/
+
+// /* runPass with out buffer and min heap*/
+// template <typename T>
+// void runPass(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int numThreads, int grp_num, int grp_size, int block_num, T* blocks[]) {
+//     int dataSize = sizeof(T);
+//     // cout << "grp_num: " << grp_num << endl;
+//     // cout << "block_num: " << block_num << endl;
+//     // cout << "total_num: " << total_num << endl;
+//     int buffer_count = 0;
+//     int buffer_round = 0;
+//     T* outBuffer = new T[block_size];
+//     #pragma omp parallel for num_threads(4)
+//     for (int i = 0; i < grp_num - 1; i++) {
+//         pmem_memcpy_nodrain(blocks[i], sortedBaseAddrTemp + i * grp_size, dataSize * block_size);
+//     }
+
+//     // copy data blocks to dram
+//     bool hasLeft = total_num % grp_size;
+//     int grp_sizes[grp_num];
+//     for (int i = 0; i < grp_num; i++) grp_sizes[i] = grp_size;
+//     if (hasLeft) grp_sizes[grp_num - 1] = total_num % grp_size;
+//     if (!hasLeft) memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * block_size);
+//     else memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * grp_sizes[grp_num - 1] );
+
+//     // initialzation of Min Heap
+//     MinHeapNode* harr = new MinHeapNode[grp_num];
+//     for (int i = 0; i < grp_num; i++) {
+//         harr[i].key = (ptrBaseAddr + i * block_size)->key;
+//         harr[i].recordPtr = (ptrBaseAddr + i * block_size)->recordPtr;
+//         harr[i].groupNum = i;
+//     }
+
+//     MinHeap hp(harr, grp_num);
+//     int count = 0; // number of sorted groups
+//     int sorted_total = 0;
+//     int grp;
+//     int* grps = new int[grp_num]; // count sorted number in each group
+//     int* grp_blocks = new int[grp_num]; // count sorted number in each dram block
+//     for (int i = 0; i < grp_num; i++) {
+//         grps[i] = 0;
+//         grp_blocks[i] = 0;
+//     }
+
+//     while (count != grp_num) {
+//         MinHeapNode root = hp.getMin();
+//         //cout << root.key << endl;
+//         // (sortedBaseAddr + sorted_total) -> key = root.key;
+//         // (sortedBaseAddr + sorted_total) -> recordPtr = root.recordPtr;
+//         (outBuffer + buffer_count) -> key = root.key;
+//         (outBuffer + buffer_count) -> recordPtr = root.recordPtr;
+//         buffer_count++;
+//         if (buffer_count == block_size) {
+//             memcpy(sortedBaseAddr + block_size * buffer_round, outBuffer, dataSize * block_size);
+//             buffer_round++;
+//             buffer_count = 0;
+//         }
+//         /* get new node from the group */
+//         grp = root.groupNum;
+
+//         grps[grp]++;;
+//         grp_blocks[grp]++;
+//         if (grp_blocks[grp] == block_size) {
+//             int left = grp_sizes[grp] - grps[grp];
+//             //cout << grp_sizes[grp] << endl;
+//             if (left >= block_size) memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * block_size);
+//             else memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * left);
+//             grp_blocks[grp] = 0;
+//         }
+//         if (hasLeft && grp == grp_num - 1 && grps[grp] == total_num % grp_size) {
+//             root.key = INT64_MAX;
+//             count++;
+//             //cout << "count: " << count << endl;
+//         } else if (grps[grp] == grp_size) {
+//             root.key = INT64_MAX;
+//             count++;
+//             //cout << "count: " << count << endl;
+//         } else {
+//             root.key = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> key;
+//             root.recordPtr = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> recordPtr;
+//             //cout << "input: " << root.key << endl;
+//         }
+//         hp.replaceMin(root);
+//         sorted_total++;
+//         //cout << endl;
+//     }
+//     if (buffer_count > 0) pmem_memcpy_nodrain(sortedBaseAddr + block_size * buffer_round, outBuffer, dataSize * buffer_count);
+
+//     delete[] grps;
+//     delete[] harr;
+//     delete[] outBuffer;
+//     return;
+// }
+
+// /* runPass with min heap*/
+// template <typename T>
+// void runPass(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int numThreads, int grp_num, int grp_size, int block_num, T* blocks[]) {
+//     int dataSize = sizeof(T);
+//     // cout << "grp_num: " << grp_num << endl;
+//     // cout << "block_num: " << block_num << endl;
+//     // cout << "total_num: " << total_num << endl;
+//     #pragma omp parallel for num_threads(4)
+//     for (int i = 0; i < grp_num - 1; i++) {
+//         memcpy(blocks[i], sortedBaseAddrTemp + i * grp_size, dataSize * block_size);
+//     }
+
+//     // copy data blocks to dram
+//     bool hasLeft = total_num % grp_size;
+//     int grp_sizes[grp_num];
+//     for (int i = 0; i < grp_num; i++) grp_sizes[i] = grp_size;
+//     if (hasLeft) grp_sizes[grp_num - 1] = total_num % grp_size;
+//     if (!hasLeft || grp_sizes[grp_num - 1] >= block_size) memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * block_size);
+//     else memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * grp_sizes[grp_num - 1] );
+
+//     // initialzation of Min Heap
+//     MinHeapNode* harr = new MinHeapNode[grp_num];
+//     for (int i = 0; i < grp_num; i++) {
+//         harr[i].key = (ptrBaseAddr + i * block_size)->key;
+//         harr[i].recordPtr = (ptrBaseAddr + i * block_size)->recordPtr;
+//         harr[i].groupNum = i;
+//     }
+
+//     MinHeap hp(harr, grp_num);
+//     int count = 0; // number of sorted groups
+//     int out = 0;
+//     int grp;
+//     int* grps = new int[grp_num]; // count sorted number in each group
+//     int* grp_blocks = new int[grp_num]; // count sorted number in each dram block
+//     for (int i = 0; i < grp_num; i++) {
+//         grps[i] = 0;
+//         grp_blocks[i] = 0;
+//     }
+
+//     while (count != grp_num) {
+//         MinHeapNode root = hp.getMin();
+//         //cout << root.key << endl;
+//         (sortedBaseAddr + out) -> key = root.key;
+//         (sortedBaseAddr + out) -> recordPtr = root.recordPtr;
+
+//         /* get new node from the group */
+//         grp = root.groupNum;
+
+//         grps[grp]++;;
+//         grp_blocks[grp]++;
+//         if (grp_blocks[grp] == block_size) {
+//             int left = grp_sizes[grp] - grps[grp];
+//             //cout << grp_sizes[grp] << endl;
+//             if (left >= block_size) memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * block_size);
+//             else memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * left);
+//             grp_blocks[grp] = 0;
+//         }
+//         if (hasLeft && grp == grp_num - 1 && grps[grp] == total_num % grp_size) {
+//             root.key = INT64_MAX;
+//             count++;
+//             //cout << "count: " << count << endl;
+//         } else if (grps[grp] == grp_size) {
+//             root.key = INT64_MAX;
+//             count++;
+//             //cout << "count: " << count << endl;
+//         } else {
+//             root.key = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> key;
+//             root.recordPtr = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> recordPtr;
+//             //cout << "input: " << root.key << endl;
+//         }
+//         hp.replaceMin(root);
+//         out++;
+//         //cout << endl;
+//     }
+//     delete[] grps;
+//     delete[] harr;
+//     return;
+// }
+
+#define MINKEY 0  //假设所有数据都大于与该值
+#define MAXKEY  1677721600 //假设所有数据都小与该值
+#define SWAP(a,b) {a=a^b;b=b^a;a=a^b;}
+
 template <typename T>
-void runPass(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int numThreads, int grp_num, int grp_size, int block_num, T* blocks[]) {
-    int dataSize = sizeof(T);
-    // cout << "grp_num: " << grp_num << endl;
-    // cout << "block_num: " << block_num << endl; 
-    // cout << "total_num: " << total_num << endl;
-    #pragma omp parallel for num_threads(4)
-    for (int i = 0; i < grp_num - 1; i++) {
-        memcpy(blocks[i], sortedBaseAddrTemp + i * grp_size, dataSize * block_size);
+void adjust(T* b,int* ls,int s,int k)
+{
+    // t is parent index of s in loser tree
+    int t = (s + k) / 2;
+    //cout << "adjust " << s << endl;
+    while (t > 0) {
+        // iterate until t is root
+        //cout << b[s].key << " " << b[ls[t]].key << endl;
+        if (b[s].key > b[ls[t]].key){
+            //与父结点指示的数据进行比较
+            //ls[t]记录败者所在的索引，s指示新的胜者，胜者将去参加更上一层的比较
+            SWAP(s,ls[t]);
+        }
+        t/= 2;//获取下一个父节点
+    }
+    //最终的胜者记录于ls[0]
+    ls[0] = s;
+    //cout << "ls[0] : " << s << endl;
+}
+
+
+
+/**
+ * arry:多路归并的所有数据
+ * b:存放多路归并的首地址数组
+ * ls:败者树数组
+ * k:几路归并
+ */
+template <typename T>
+void createLoserTree(T *arry[], T* b,int* ls,int k)
+{
+
+    for (int i = 0; i < k; ++i){
+        b[i].key = (arry[i] + 0)->key;//每一路的首元素进行赋予
+        b[i].recordPtr = (arry[i] + 0)->recordPtr;
+    }
+    //最后一个元素用于存放默认的最小值，用于刚开始的对比
+    b[k].key = MINKEY;
+
+
+    //设置ls数组中败者的初始值，既b[k]最小值
+    for (int i=0; i < k; i++) {
+
+        ls[i] = k;
     }
 
-    // copy data blocks to dram
+    //有k个叶子节点
+    //从最后一个叶子节点开始，沿着从叶子节点到根节点的路径调整
+    for (int i = k - 1; i >= 0; --i){
+        adjust(b, ls, i, k);
+        // for (int j = 0; j < k; j++) {
+        //     cout << ls[j] << " ";
+        // }
+        // cout << endl;
+    }
+
+    // for (int i = 0; i < k; i ++) {
+    //     cout << ls[i] << endl;
+    // }
+
+}
+
+/**
+ *多路归并操作
+ */
+template <typename T>
+void kMerge(T* sortedBaseAddr, T* arr[], int* arrayCount, int k, int* ls, T* b)
+{
+
+    //index数组记录每一路读取的索引，
+    int index[k];
+    for (int i = 0; i < k; i++){
+
+        index[i] = 0;
+    }
+
+    //cout << "test1" << endl;
+    int out_num = 0;
+    //最终的胜者存储在 is[0]中，当其值为 MAXKEY时，证明5个临时文件归并结束
+    while (b[ls[0]].key!=MAXKEY) {
+
+
+        //获取胜者索引
+        int s = ls[0];
+        //输出过程模拟向外存写的操作
+        //printf("%d ", (int)b[s].key);
+        //if (out_num > 1000 && out_num < 1010) cout << sortedBaseAddr->key << endl;
+        (sortedBaseAddr + out_num)->key = b[s].key;
+        (sortedBaseAddr + out_num)->recordPtr = b[s].recordPtr;
+        //对应的索引路进行++记录
+        ++index[s];
+
+        //判断是否已经读完
+        if (index[s] < arrayCount[s]){
+
+            //没有读完，从第s路中读取数据
+            //if (out_num > 1000 && out_num < 1010)  cout << b[s].key << " " << (arr[s] + index[s])->key<< endl;
+            b[s].key = (arr[s] + index[s])->key;
+            b[s].recordPtr = (arr[s] + index[s])->recordPtr;
+        }else{
+
+            //已经读完用最大值来表示该路已经结束
+            b[s].key = MAXKEY;
+        }
+        //进行调整，让最终胜者的索引存放到ls[0]中
+        adjust(b, ls, s, k);
+        out_num++;
+    }
+}
+
+
+/* parallelizable runPass with loser tree*/
+template <typename T>
+void runPass(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int numThreads, int grp_num, int grp_size, int block_num, T* blocks[]) {
+    // calculate size of each groups to be merged
     bool hasLeft = total_num % grp_size;
     int grp_sizes[grp_num];
     for (int i = 0; i < grp_num; i++) grp_sizes[i] = grp_size;
     if (hasLeft) grp_sizes[grp_num - 1] = total_num % grp_size;
-    if (!hasLeft || grp_sizes[grp_num - 1] >= block_size) memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * block_size);
-    else memcpy(blocks[grp_num-1], sortedBaseAddrTemp + (grp_num-1) * grp_size, dataSize * grp_sizes[grp_num - 1] );
 
-    // initialzation of Min Heap
-    MinHeapNode* harr = new MinHeapNode[grp_num];
-    for (int i = 0; i < grp_num; i++) {
-        harr[i].key = (ptrBaseAddr + i * block_size)->key;
-        harr[i].recordPtr = (ptrBaseAddr + i * block_size)->recordPtr;
-        harr[i].groupNum = i;
-    }
+    int k = grp_num;
+    int ls[k];
+    T b[k+1];
 
-    MinHeap hp(harr, grp_num);
-    int count = 0; // number of sorted groups
-    int out = 0;
-    int grp;
-    int* grps = new int[grp_num]; // count sorted number in each group
-    int* grp_blocks = new int[grp_num]; // count sorted number in each dram block
-    for (int i = 0; i < grp_num; i++) {
-        grps[i] = 0;
-        grp_blocks[i] = 0;
-    }
+    T** arr = new T*[grp_num];
+    for (int i = 0; i < grp_num; i++) arr[i] = sortedBaseAddrTemp + i * grp_size;
 
-    while (count != grp_num) {
-        MinHeapNode root = hp.getMin();
-        //cout << root.key << endl;
-        (sortedBaseAddr + out) -> key = root.key;
-        (sortedBaseAddr + out) -> recordPtr = root.recordPtr;
+    createLoserTree(arr,b,ls,k);
 
-        /* get new node from the group */
-        grp = root.groupNum;
+    kMerge<KeyPtrPair>(sortedBaseAddr, arr, grp_sizes, k, ls, b);
 
-        grps[grp]++;;
-        grp_blocks[grp]++;
-        if (grp_blocks[grp] == block_size) {
-            int left = grp_sizes[grp] - grps[grp];
-            //cout << grp_sizes[grp] << endl;
-            if (left >= block_size) memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * block_size);
-            else memcpy(blocks[grp], sortedBaseAddrTemp + grp * grp_size + grps[grp], dataSize * left);
-            grp_blocks[grp] = 0;
-        }
-        if (hasLeft && grp == grp_num - 1 && grps[grp] == total_num % grp_size) {
-            root.key = INT64_MAX;
-            count++;
-            //cout << "count: " << count << endl;
-        } else if (grps[grp] == grp_size) {
-            root.key = INT64_MAX;
-            count++;
-            //cout << "count: " << count << endl;
-        } else {
-            root.key = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> key;
-            root.recordPtr = (ptrBaseAddr + grp * block_size + grp_blocks[grp]) -> recordPtr;
-            //cout << "input: " << root.key << endl;
-        }
-        hp.replaceMin(root);
-        out++;
-        //cout << endl;
-    }
-    delete[] grps;
-    delete[] harr;
-    return;
+    delete[] arr;
 }
 
 template <typename T>
 T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int mem_num, int numThreads, int grp_num, int grp_size, int block_num, T* blocks[]) {
     int block_size = mem_num / block_num;
     int dataSize = sizeof(T);
-
+    //void runPass(T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int grp_num, int grp_size, int block_num) {
     int passCount = 0;
     while (grp_num > 1) {
         cout << "running pass " << passCount << endl;
@@ -463,7 +703,7 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
             T* tempAddr = sortedBaseAddr;
             sortedBaseAddr = sortedBaseAddrTemp;
             sortedBaseAddrTemp = tempAddr;
-        } 
+        }
         if (grp_num <= block_num) {
             runPass(ptrBaseAddr, sortedBaseAddr, sortedBaseAddrTemp, total_num, block_size, numThreads, grp_num, grp_size, block_num, blocks);
             grp_num = 1;
@@ -472,12 +712,18 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
             int grpLeft = grp_num;
             int numLeft = total_num;
             if (grp_num % block_num) numMerges++;
+            int numGrpToMerge[numMerges];
+            int numToSort[numMerges];
+           
             for (int i = 0; i < numMerges; i++) {
-                int numGrpToMerge = min(block_num, grpLeft);
-                int numToSort = min(block_num * grp_size, numLeft);
-                runPass(ptrBaseAddr, sortedBaseAddr + i*block_num*grp_size, sortedBaseAddrTemp + i*block_num*grp_size, numToSort, block_size, numThreads, numGrpToMerge, grp_size, block_num, blocks);
+                numGrpToMerge[i] = min(block_num, grpLeft);
+                numToSort[i] = min(block_num * grp_size, numLeft);
                 grpLeft -= block_num;
                 numLeft -= block_num * grp_size;
+            }
+            #pragma omp parallel for num_threads(8)
+            for (int i = 0; i < numMerges; i++) {
+                runPass(ptrBaseAddr, sortedBaseAddr + i*block_num*grp_size, sortedBaseAddrTemp + i*block_num*grp_size, numToSort[i], block_size, numThreads, numGrpToMerge[i], grp_size, block_num, blocks);
             }
             grp_size *= block_num;
             grp_num = numMerges;
@@ -486,7 +732,6 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
     }
     return sortedBaseAddr;
 }
-
 
 template <typename T>
 T* externalMergeSort(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int mem_num, int numThreads) {
@@ -504,6 +749,7 @@ T* externalMergeSort(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddr, 
     auto stop_2 = high_resolution_clock::now();
     auto duration_2= duration_cast<microseconds>(stop_2 - start_2);
     cout << "Sort Runs Time Used: " << duration_2.count() << "microseconds" << endl;
+
 
     /* merge the sorted groups using minHeap */
     start_2 = high_resolution_clock::now();

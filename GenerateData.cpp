@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     int fd;
     char* memoryBase;
     char filepath[] = "./Record/UnSortedRecord.dat";
-    char pfilepath[] = "/optane/hanhua/UNSORTED_KEYS";
+    char pfilepath[] = "/optane/hanhua/UNSORTED_KEYS2.5G";
 
     cout << "Generating Data to Sort" << endl;
     cout << "Record Unit Size = " << sizeof(Record) << " bytes\n";
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
     srand(seed);
     vector<uint64_t> keys(numKeys);
     for(int i = 0; i < numKeys; i++) {
-        keys[i] = i;
+        keys[i] = i + 1;
         //keys[i] = numKeys - i - 1;
     }
     random_shuffle(keys.begin(), keys.end());

@@ -42,8 +42,8 @@ int main(int argc, char* argv[]) {
     }
 
     //const char* pfilepaths[3] = {"/optane/hanhua/UNSORTED_KEYS4M", "/optane/hanhua/UNSORTED_KEYS16M", "/optane/hanhua/UNSORTED_KEYS25G"};
-    const char* pfilepaths[3] = {"/optane/hanhua/UNSORTED_KEYS4M", "/optane/hanhua/UNSORTED_KEYS", "/optane/hanhua/UNSORTED_KEYS25G"};
-    long long keySizes[3] = {4194304, 16777216, 1677721600};
+    const char* pfilepaths[3] = {"/optane/hanhua/UNSORTED_KEYSTEST", "/optane/hanhua/UNSORTED_KEYS0.25G", "/optane/hanhua/UNSORTED_KEYS2.5G"};
+    long long keySizes[3] = {25, 16777216, 167772160};
 
     int data = atol(argv[1]);
     bool useDram = atol(argv[2]);
@@ -54,6 +54,7 @@ int main(int argc, char* argv[]) {
     int numThreads = 1;
 
     const char* pfilepath = pfilepaths[data];
+    const char* temppath = "/optane/hanhua/SORTED/TEMP";
     const char* sortedpath = "/optane/hanhua/SORTED/SORTED_KEYS";
     const char* sortedpatht = "/optane/hanhua/SORTED/SORTED_KEYS_TEMP";
 
@@ -61,21 +62,28 @@ int main(int argc, char* argv[]) {
     KeyPtrPair* sortedBaseAddr; // sorted key-pointer in NVM
     KeyPtrPair* ptrBaseAddr; // temporary key-pointer in DRAM
     KeyPtrPair* sortedBaseAddrTemp = allocateNVMRegion<KeyPtrPair>(numKeys*sizeof(KeyPtrPair), sortedpatht); // extra space to store key-ptr in NVM for external sort
-    vector<KeyPtrPair> *dramBase = new vector<KeyPtrPair>();
 
-    long long mem_num = numKeys / 100 * 1.1;
-    dramBase->resize(mem_num);
-    ptrBaseAddr = &(*dramBase)[0];
+    long long mem_num = numKeys /100*1.1;
+    if (sortMethod != 3 && sortMethod != 4 && sortMethod != 10 && sortMethod != 11) mem_num = numKeys;
+    //vector<KeyPtrPair> *dramBase = new vector<KeyPtrPair>();
+    //dramBase->resize(mem_num);
+    //ptrBaseAddr = &(*dramBase)[0];
+
+    ptrBaseAddr = new KeyPtrPair[mem_num];
+    //ptrBaseAddr = allocateNVMRegion<KeyPtrPair>(mem_num * sizeof(KeyPtrPair), temppath);
+
 
     recordBaseAddr = allocateNVMRegion<Record>(targetLength, pfilepath);
     sortedBaseAddr = allocateNVMRegion<KeyPtrPair>(numKeys*sizeof(KeyPtrPair), sortedpath);
 
-    if (useDram) {
-        cout << "convert to dram" << endl;
-        convertToPtrDram(recordBaseAddr, ptrBaseAddr, numKeys);
-    } else {
-        cout << "convert to nvm" << endl;
-        convertToPtrNVM(recordBaseAddr, sortedBaseAddr, numKeys);
+    if (sortMethod != 3 && sortMethod != 4 && sortMethod != 10 && sortMethod != 11) {
+        if (useDram) {
+            cout << "convert to dram" << endl;
+            convertToPtrDram(recordBaseAddr, ptrBaseAddr, numKeys);
+        } else {
+            cout << "convert to nvm" << endl;
+            convertToPtrNVM(recordBaseAddr, sortedBaseAddr, numKeys);
+        }
     }
 
 
@@ -181,8 +189,8 @@ int main(int argc, char* argv[]) {
     cout << "Working... Verifying sorted keys\n";
     bool sorted = true;
     for (int i = 0; i < numKeys; i++) {
-        if (i < 10 && i > 0 ) cout << "i: " << i << " value: " <<(sortedBaseAddr + i)->key << endl;
-        if ((sortedBaseAddr + i)->key != i) {
+        if (i < 10 && i >= 0 ) cout << "i: " << i << " value: " <<(sortedBaseAddr + i)->key << endl;
+        if ((sortedBaseAddr + i)->key != i + 1) {
             cout << i << endl;
             cout << (sortedBaseAddr + i)->key << endl;
             cout << (sortedBaseAddr + i+1)->key << endl;;
