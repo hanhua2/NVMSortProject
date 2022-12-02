@@ -37,6 +37,27 @@ inline int determineDigitBucket(int stage,D num){
 }
 
 
+
+// const int MaxThreadNum=64;
+// const long long MaxDataSize=10000000000;
+// const long long MaxDataNum=4294967295;
+// const int MaxKisuu=256;
+
+// std::vector<int> Dataset;
+// long long Datasize;
+
+// static const int kRadixBits = 8;
+// static const size_t kInsertSortThreshold = 0;
+// static const int kRadixMask = (1 << kRadixBits) - 1;
+// static const int kRadixBin = 1 << kRadixBits;
+
+// template<class D>
+// inline int determineDigitBucket(int stage,D num){
+//     return ((num>>(8*stage))&kRadixMask);
+// }
+
+
+
 template< class _Type>
 inline void _swap(_Type &a, _Type&b)  {
     _Type temp = b;
@@ -122,7 +143,7 @@ inline void PARADIS_core(RandomIt s,RandomIt t,RandomIt begin_itr,int processes=
             starts[0]=gh[0];
         }
         //step2
-#pragma omp single 
+#pragma omp single
         for(int i=1;i<kRadixBin;i++){
             //calc ghi
             gh[i]=gh[i-1]+cnt[i-1];
@@ -137,7 +158,7 @@ inline void PARADIS_core(RandomIt s,RandomIt t,RandomIt begin_itr,int processes=
             for(int ii=0;ii<processes;ii++){
                 int pID=omp_get_thread_num(); // PID: thread num
                 for(int i=0;i<kRadixBin;i++){
-                    long long part=(long long)(gt[i]-gh[i])/(long long)var_p;   // stripe size 
+                    long long part=(long long)(gt[i]-gh[i])/(long long)var_p;   // stripe size
                     long long res=(long long)(gt[i]-gh[i])%(long long)(var_p);
                     if(pID<var_p-1){
                         ph[pID][i]=part*pID+gh[i];
@@ -150,7 +171,7 @@ inline void PARADIS_core(RandomIt s,RandomIt t,RandomIt begin_itr,int processes=
 
 
                 for(int i=0;i<kRadixBin;i++){
-                    long long head=ph[pID][i]; 
+                    long long head=ph[pID][i];
                     while(head<pt[pID][i]){
                         auto v=*(begin_itr+head);
                         int k=determineDigitBucket(kth_byte,v.key);
@@ -204,7 +225,7 @@ inline void PARADIS_core(RandomIt s,RandomIt t,RandomIt begin_itr,int processes=
                         }
                     }
                     gh[i]=tail;
-                } 
+                }
             }
 #pragma omp barrier
 #pragma omp single
@@ -240,13 +261,13 @@ inline void PARADIS_core(RandomIt s,RandomIt t,RandomIt begin_itr,int processes=
             }
 #pragma omp taskwait
         }
-    }   
+    }
 }
 
 
 template<class RandomIt>
 inline void PARADIS(RandomIt s,RandomIt t,int threadNum){
-    const size_t vsize=4;
+    const size_t vsize= 4;
     //const size_t vsize = sizeof(s->key);
     //cout << "vsize: " << vsize << endl;
     omp_set_nested(1);
@@ -327,7 +348,7 @@ inline void PARADIS_core_count(RandomIt s,RandomIt t,RandomIt begin_itr, long lo
             starts[0]=gh[0];
         }
         //step2
-#pragma omp single 
+#pragma omp single
         for(int i=1;i<kRadixBin;i++){
             //calc ghi
             gh[i]=gh[i-1]+cnt[i-1];
@@ -342,7 +363,7 @@ inline void PARADIS_core_count(RandomIt s,RandomIt t,RandomIt begin_itr, long lo
             for(int ii=0;ii<processes;ii++){
                 int pID=omp_get_thread_num(); // PID: thread num
                 for(int i=0;i<kRadixBin;i++){
-                    long long part=(long long)(gt[i]-gh[i])/(long long)var_p;   // stripe size 
+                    long long part=(long long)(gt[i]-gh[i])/(long long)var_p;   // stripe size
                     long long res=(long long)(gt[i]-gh[i])%(long long)(var_p);
                     if(pID<var_p-1){
                         ph[pID][i]=part*pID+gh[i];
@@ -355,7 +376,7 @@ inline void PARADIS_core_count(RandomIt s,RandomIt t,RandomIt begin_itr, long lo
 
 
                 for(int i=0;i<kRadixBin;i++){
-                    long long head=ph[pID][i]; 
+                    long long head=ph[pID][i];
                     while(head<pt[pID][i]){
                         auto v=*(begin_itr+head);
                         int k=determineDigitBucket(kth_byte,v.key);
@@ -417,7 +438,7 @@ inline void PARADIS_core_count(RandomIt s,RandomIt t,RandomIt begin_itr, long lo
                     //     }
                     // }
                     gh[i]=tail;
-                } 
+                }
             }
 #pragma omp barrier
 #pragma omp single
@@ -453,7 +474,7 @@ inline void PARADIS_core_count(RandomIt s,RandomIt t,RandomIt begin_itr, long lo
             }
 #pragma omp taskwait
         }
-    }   
+    }
 }
 
 

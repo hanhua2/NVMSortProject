@@ -26,7 +26,7 @@ using namespace std::chrono;
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
+    if (argc != 3) {
         cout << "Num args supplied = " << argc << endl;
         cout << "Usage: <number_of_keys_to_generate> <integer_seed>" << endl;
         return 0;
@@ -34,17 +34,14 @@ int main(int argc, char* argv[]) {
 
     int numKeys = atol(argv[1]);
     int seed = atol(argv[2]);
-    int isP = atol(argv[3]);
-    int fd;
-    char* memoryBase;
-    char filepath[] = "./Record/UnSortedRecord.dat";
-    char pfilepath[] = "/optane/hanhua/UNSORTED_KEYS2.5G";
+
+    char pfilepath[] = "/optane/hanhua/UNSORTED_KEYS"; 
 
     cout << "Generating Data to Sort" << endl;
     cout << "Record Unit Size = " << sizeof(Record) << " bytes\n";
     cout << "Number of keys to generate: " << numKeys << endl;
     cout << "Using seed: " << seed << endl;
-
+    cout << "Record size: " << sizeof(Record) << endl;
     auto start = high_resolution_clock::now();
     
     
@@ -53,23 +50,8 @@ int main(int argc, char* argv[]) {
     vector<uint64_t> keys(numKeys);
     for(int i = 0; i < numKeys; i++) {
         keys[i] = i + 1;
-        //keys[i] = numKeys - i - 1;
     }
     random_shuffle(keys.begin(), keys.end());
-    
-    
-    // int num1, num2;
-    // for (int i = 0; i < numKeys * 0.05; i ++) {
-    //     num1 = rand() % numKeys;
-    //     num2 = rand() % numKeys;
-    //     //keys[num1] = num2;
-        
-    //     if (num1 != num2) {
-    //        iter_swap(keys.begin() + num1, keys.begin() + num2);
-    //     }   
-    // } 
-    
-    
     
 
 #if PRINT_GENERATED_KEYS
@@ -82,51 +64,20 @@ int main(int argc, char* argv[]) {
 
     size_t targetLength = numKeys * sizeof(Record);
 
+    Record* recordBaseAddr = allocateNVMRegion<Record>(targetLength, pfilepath);
 
-    
-    if (isP) {
-        
-        Record* recordBaseAddr = allocateNVMRegion<Record>(targetLength, pfilepath);
-
-        cout << "Working... Copying generated keys into NVM\n";
-        #pragma omp parallel for num_threads(16)
-        for (int i = 0; i < numKeys; i++) {
-            Record r;
-            BYTE_24 val;
-            r.key = keys[i];
-            r.value.val[0] = keys[i];
-            pmem_memcpy_nodrain((void*) (recordBaseAddr + i), (void*) &r, sizeof(Record));
-        }
-
-        pmem_unmap((char* ) recordBaseAddr, targetLength);
-
-    } else{
-        Record* recordBaseAddr;
-
-        if ((fd = open(filepath, O_CREAT|O_RDWR|O_TRUNC, 0666)) < 0) {
-            cout << "Create file failed" << endl;
-            return 0;
-        }
-        memoryBase = (char *)mmap(NULL, sizeof(Record) * numKeys, \
-                PROT_READ | PROT_WRITE, MAP_ANON|MAP_SHARED, -1, 0);
-
-        cout << "Working... Copying generated keys into Disk\n";
-        recordBaseAddr = (Record*) memoryBase;
-        for (int i = 0; i < numKeys; i++) {
-            Record tempr;
-            BYTE_24 val;
-            tempr.key = keys[i];
-            tempr.value.val[0] = keys[i];
-            memcpy(recordBaseAddr + i, &tempr, sizeof(Record));
-        }
-
-        cout << "Writting generated unsorted file" << endl;
-        write(fd, recordBaseAddr, sizeof(Record) * numKeys);
-        cout << "Writting finished" << endl;
-
-        close(fd);
-        munmap(recordBaseAddr, sizeof(Record) * numKeys);
+    cout << "Working... Copying generated keys into NVM\n";
+    #pragma omp parallel for num_threads(16)
+    for (int i = 0; i < numKeys; i++) {
+        Record r;
+        r.key = keys[i];
+        r.value.val[0] = keys[i];
+        pmem_memcpy_nodrain((void*) (recordBaseAddr + i), (void*) &r, sizeof(Record));
     }
+
+    pmem_unmap((char* ) recordBaseAddr, targetLength);
+
+
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start);
     cout << "Time Used:" << duration.count() << endl;

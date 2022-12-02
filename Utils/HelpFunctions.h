@@ -39,10 +39,3 @@ T* allocateNVMRegion(size_t targetLength, const char* TARGET_FILE_PATH) {
 }
 
 
-inline void clear_cache(char *addr, int size) {
-    int round = (size-1) / 64 + 1;
-    for (int i = 0;i < round;i++) {
-        _mm_clflush(addr);
-        addr += 64;
-    }
-}

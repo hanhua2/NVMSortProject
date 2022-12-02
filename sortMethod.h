@@ -154,6 +154,45 @@ void mergeSortHelper(T* RecordBaseAddr, vector<T>& tmp, int l, int r) {
     for (int i = l, j = 0; i <= r; i++, j++) *(RecordBaseAddr + i) = tmp[j];
 }
 
+/* method 6 heapSort*/
+template <typename T>
+void heapify(T* arr, int N, int i)
+{
+    int largest = i;
+    int l = 2 * i + 1;
+    int r = 2 * i + 2;
+    // If left child is larger than root
+    if (l < N && (arr + l)->key > (arr + largest)->key)
+        largest = l;
+    // If right child is larger than largest
+    if (r < N && (arr + r)->key > (arr + largest)->key)
+        largest = r;
+    // If largest is not root
+    if (largest != i) {
+        swap(arr + i, arr + largest);
+        // Recursively heapify the affected sub-tree
+        heapify(arr, N, largest);
+    }
+}
+
+template <typename T>
+void heapSort(T* arr, int N)
+{
+    for (int i = N / 2 - 1; i >= 0; i--)
+        heapify(arr, N, i);
+ 
+    // One by one extract an element from heap
+    for (int i = N - 1; i > 0; i--) {
+        // Move current root to end
+        swap(arr, arr + i);
+
+        // call max heapify on the reduced heap
+        heapify(arr, i, 0);
+    }
+}
+
+
+/* method 8 parallel implemnetation of quicksort */
 template <typename T>
 void quickSortParlHelper(T* recordBaseAddr, long long l, long long r) {
 	if (l >= r) return;
@@ -194,15 +233,19 @@ void quickSortParl(T* recordBaseAddr, long long numKeys, int numThreads) {
 
 /* method 9 parallel implemnetation of mergesort */
 template <typename T>
-void mergeSortParl(T* recordBaseAddr, long long numKeys, int numThreads) {
+void mergeSortParl(T* recordBaseAddr, long long numKeys, int numThreads, T* sortedBaseAddrTemp, bool useDRAM) {
 	omp_set_dynamic(0);
-	T* tmp = new T[numKeys];
-	#pragma omp parallel num_threads(numThreads)
+    T* tmp;
+	if (useDRAM) tmp = new T[numKeys];
+	else {
+        tmp = sortedBaseAddrTemp;
+    }
+    #pragma omp parallel num_threads(numThreads)
 	{
 		#pragma omp single
-		mergeSortParlHelper(recordBaseAddr, tmp, 0, numKeys - 1);
+		mergeSortParlHelper(recordBaseAddr, tmp, 0  , numKeys - 1);
 	}
-	delete[] tmp;
+	if (useDRAM) delete[] tmp;
 
 }
 
@@ -552,27 +595,25 @@ void mergeGroup(T *ptrBaseAddr, T* sortedBaseAddr, T *sortedBaseAddrTemp, int to
 //     return;
 // }
 
-#define MINKEY 0  //假设所有数据都大于与该值
-#define MAXKEY  1677721600 //假设所有数据都小与该值
+#define MINKEY 0  
+#define MAXKEY  1677721600 
 #define SWAP(a,b) {a=a^b;b=b^a;a=a^b;}
 
 template <typename T>
 void adjust(T* b,int* ls,int s,int k)
 {
-    // t is parent index of s in loser tree
+
     int t = (s + k) / 2;
     //cout << "adjust " << s << endl;
     while (t > 0) {
         // iterate until t is root
         //cout << b[s].key << " " << b[ls[t]].key << endl;
         if (b[s].key > b[ls[t]].key){
-            //与父结点指示的数据进行比较
-            //ls[t]记录败者所在的索引，s指示新的胜者，胜者将去参加更上一层的比较
             SWAP(s,ls[t]);
         }
-        t/= 2;//获取下一个父节点
+        t/= 2;
     }
-    //最终的胜者记录于ls[0]
+
     ls[0] = s;
     //cout << "ls[0] : " << s << endl;
 }
@@ -635,33 +676,21 @@ void kMerge(T* sortedBaseAddr, T* arr[], int* arrayCount, int k, int* ls, T* b)
 
     //cout << "test1" << endl;
     int out_num = 0;
-    //最终的胜者存储在 is[0]中，当其值为 MAXKEY时，证明5个临时文件归并结束
     while (b[ls[0]].key!=MAXKEY) {
 
-
-        //获取胜者索引
         int s = ls[0];
-        //输出过程模拟向外存写的操作
-        //printf("%d ", (int)b[s].key);
-        //if (out_num > 1000 && out_num < 1010) cout << sortedBaseAddr->key << endl;
         (sortedBaseAddr + out_num)->key = b[s].key;
         (sortedBaseAddr + out_num)->recordPtr = b[s].recordPtr;
-        //对应的索引路进行++记录
         ++index[s];
 
-        //判断是否已经读完
         if (index[s] < arrayCount[s]){
 
-            //没有读完，从第s路中读取数据
-            //if (out_num > 1000 && out_num < 1010)  cout << b[s].key << " " << (arr[s] + index[s])->key<< endl;
             b[s].key = (arr[s] + index[s])->key;
             b[s].recordPtr = (arr[s] + index[s])->recordPtr;
         }else{
 
-            //已经读完用最大值来表示该路已经结束
             b[s].key = MAXKEY;
         }
-        //进行调整，让最终胜者的索引存放到ls[0]中
         adjust(b, ls, s, k);
         out_num++;
     }
@@ -697,6 +726,7 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
     int dataSize = sizeof(T);
     //void runPass(T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_num, int block_size, int grp_num, int grp_size, int block_num) {
     int passCount = 0;
+    T* ptrBaseAddr2 = new KeyPtrPair[mem_num];
     while (grp_num > 1) {
         cout << "running pass " << passCount << endl;
         if (passCount > 0) { // swap sortedBaseAddr and sortedBaseAddr in each round
@@ -706,6 +736,7 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
         }
         if (grp_num <= block_num) {
             runPass(ptrBaseAddr, sortedBaseAddr, sortedBaseAddrTemp, total_num, block_size, numThreads, grp_num, grp_size, block_num, blocks);
+            //runPass(ptrBaseAddr, ptrBaseAddr2, sortedBaseAddrTemp, total_num, block_size, numThreads, grp_num, grp_size, block_num, blocks);
             grp_num = 1;
         } else {
             int numMerges = grp_num / block_num; // how many merge operation in one pass
@@ -721,7 +752,7 @@ T* runMerge(T *ptrBaseAddr, T *sortedBaseAddr, T *sortedBaseAddrTemp, int total_
                 grpLeft -= block_num;
                 numLeft -= block_num * grp_size;
             }
-            #pragma omp parallel for num_threads(8)
+            #pragma omp parallel for num_threads(1)
             for (int i = 0; i < numMerges; i++) {
                 runPass(ptrBaseAddr, sortedBaseAddr + i*block_num*grp_size, sortedBaseAddrTemp + i*block_num*grp_size, numToSort[i], block_size, numThreads, numGrpToMerge[i], grp_size, block_num, blocks);
             }
@@ -760,436 +791,504 @@ T* externalMergeSort(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddr, 
     return sortedBaseAddr;
 }
 
-/* method 5*/
-// void findNaturalRun(int block_num, vector<MinMaxIndex>* naturalRuns, vector<MinMaxIndex>* minMaxs) {
-//     vector<int>* tempResult;
-//     vector<int>* naturalRunIndex = new vector<int>(); // temporal index store for natural runs
-//     int s, t;
-//     for (int i = 0; i < 100; i++) {
-//         s = i;
-//         tempResult = new vector<int>();
-//         int j = i + 1;
-//         while (j < block_num) {
-//             (*tempResult).push_back(s);
-//             for (; j < block_num; j++) {
-//                 t = j;
-//                 if ((*minMaxs)[t].min > (*minMaxs)[s].max) {
-//                     s = t;
-//                     break;
-//                 }
-//             }
-//         }
-//         if ((*tempResult).size() >  (*naturalRunIndex).size()) {
-//             naturalRunIndex = tempResult;
-//         }
-//     }
 
-//     // save natural run indexs
-//     for (int i = 0; i <(*naturalRunIndex).size(); i++ ) {
-//         (*minMaxs)[(*naturalRunIndex)[i]].isNatural = true;
-//         (*naturalRuns).push_back((*minMaxs)[(*naturalRunIndex)[i]]);
-//         //cout << (*naturalRuns)[i].num << " "<< (*naturalRuns)[i].min << " " << (*naturalRuns)[i].max  << " " << (*naturalRuns)[i].isNatural << endl;
-//     }
+/* method 5 montres*/ 
 
-//     // remove natural run block from MinMax Indexes
-//     vector<MinMaxIndex>* minMaxs2 = new vector<MinMaxIndex>();
-//     std::copy_if ((*minMaxs).begin(), (*minMaxs).end(), std::back_inserter(*(minMaxs2)), [](MinMaxIndex i){return i.isNatural == false;} );
-//     (*minMaxs) = (*minMaxs2);
+template <typename T>
+void quickSort( T* recordBaseAddr, int l, int r) {
+    if (l < r)
+    {
+        int index = partition(recordBaseAddr, l, r);
+        if (index < 10000) cout << index << endl;
+        quickSort(recordBaseAddr, l, index - 1);
+        quickSort(recordBaseAddr, index + 1, r);
+    }
+}
 
-//     minMaxs2 -> clear();
-//     tempResult -> clear();
-//     naturalRunIndex -> clear();
-// }
-
-// template <typename T>
-// void generateMinMaxIndex(Record *recordBaseAddr, T *ptrBaseAddr, int block_num, int block_size, vector<MinMaxIndex>* minMaxs, int thread_num) {
-
-//     omp_set_dynamic(0);
-//     #pragma omp parallel for num_threads(thread_num)
-//     for (int i = 0; i < block_num; i++) {
-//         int curr;
-//         (*minMaxs)[i].min = INT64_MAX;
-//         (*minMaxs)[i].max = 0;
-//         (*minMaxs)[i].num = i;
-//         (*minMaxs)[i].isNatural = false;
-//         for (int j = 0; j < block_size; j++) {
-//             curr = (recordBaseAddr + i * block_size + j)->key;
-//             if (curr < (*minMaxs)[i].min) {
-//                 (*minMaxs)[i].min = curr;
-//             }
-//             if (curr > (*minMaxs)[i].max) {
-//                 (*minMaxs)[i].max = curr;
-//             }
-//         }
-//     }
-//     // #pragma omp parallel default(none) shared(minMaxs, block_num) num_threads(thread_num)
-//     // {
-//     //     #pragma omp single nowait
-//     //     quickSortMinMax<MinMaxIndex>(&(*minMaxs)[0], 0, block_num-1);
-//     // }
-//     quickSortMinMax<MinMaxIndex>(&(*minMaxs)[0], 0, block_num-1);
-
-//     cout << "Done" << endl;
-//     cout << (*minMaxs)[(*minMaxs).size()-1].min << endl;
-// }
-
-// template <typename T>
-// void montresSort(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddr, int total_num, int mem_num, int thread_num) {
-
-//     int block_size = 512;
-//     int block_num = total_num/block_size;
-//     int numWrites = 0;
-//     if (total_num % block_num != 0) block_num += 1;
-//     vector<MinMaxIndex>* minMaxs = new vector<MinMaxIndex>();
-//     minMaxs->resize(block_num);
-//     vector<MinMaxIndex>* naturalRuns = new vector<MinMaxIndex>();
-
-//     // Generate MinMax Indexs
-//     cout << "Generating Minmax Indexs..." << endl;
-//     auto start_2 = high_resolution_clock::now();
-//     generateMinMaxIndex(recordBaseAddr, ptrBaseAddr, block_num, block_size, minMaxs, thread_num);
-//     auto stop_2 = high_resolution_clock::now();
-//     auto duration_2= duration_cast<microseconds>(stop_2 - start_2);
-//     cout << "Generating Minmax Indexs Time Used: " << duration_2.count() << "microseconds" << endl;
-
-//     // Find Natural Run
-//     cout << "Finding Natural Run..." << endl;
-//     start_2 = high_resolution_clock::now();
-//     findNaturalRun(block_num, naturalRuns, minMaxs);
-//     stop_2 = high_resolution_clock::now();
-//     duration_2= duration_cast<microseconds>(stop_2 - start_2);
-//     cout << "Find Natural Run Time Used: " << duration_2.count() << "microseconds" << endl;
+template <typename T>
+void quickSortMedian(T* recordBaseAddr, int l, int r) {
+    if (l >= r) return;
+	int mid = (l + r) / 2;
+    int median = findMedian(recordBaseAddr, l, r);
+    int i = l - 1, j = r + 1, x = (recordBaseAddr + median)->key;
+    if (median != mid) {
+        swap(recordBaseAddr + median, recordBaseAddr + mid);
+    }
+    while(i < j) {
+        do i++; while ((recordBaseAddr + i)->key < x);
+        do j--; while ((recordBaseAddr + j)->key > x);
+        if (i < j) {
+            swap(recordBaseAddr + i, recordBaseAddr + j);
+        }
+    }
+    quickSortMedian(recordBaseAddr, l, j);
+    quickSortMedian(recordBaseAddr, j + 1, r);
+}
 
 
-//     // Run Generation
-//     cout << "Run Generation..." << endl;
-//     start_2 = high_resolution_clock::now();
-//     static const char* RUN_FILE_PATH_PREFIX = "/dcpmm/hanhua/Runs/run";
-//     int naturalBlockNum = 0; // block_num of naturalRunIndex
-//     int minMaxBlockNum = 0; // block_num of minMaxs
-//     int Wn = 0; // natural run element index in dram
-//     int Ws = block_size; // minmax element index in dram
-//     int runNum = 0; // current run num
-//     int totalRunNum; // total number of sorted runs
-//     int memSize = mem_num / block_size - 1; // dram block number for minMax blocks
-//     int nextMin; // minimum value of next block
-//     int sortedNum = 0; // number of sorted datas
+template <typename T>
+int partitionMinMax( T* recordBaseAddr, int l, int r)
+{
+    // Declaration
+    int pivot = (recordBaseAddr + r)->min;
+    int i = (l - 1);
 
-//     Record* naturalBaseAddr;
-//     Record* minMaxBaseAddr;
-//     vector<KeyPtrPair*> *sortedRuns = new vector<KeyPtrPair*>(); // store pointers to sorted runs
-//     totalRunNum = minMaxs -> size() / memSize;
-//     if (minMaxs -> size() % memSize != 0) totalRunNum += 1;
-//     int* runSize = new int[totalRunNum]; // size of generated sorted run
-//     int* runCount = new int[totalRunNum]; // count merged number in each sorted run;
-//     for (int i = 0; i < totalRunNum; i++) {
-//         runSize[i] = 0;
-//         runCount[i] = 0;
-//     }
-//     //cout <<" size " << totalRunNum  << " " << minMaxs -> size() << " " << memSize << endl;
+    // Rearranging the array
+    for (int j = l; j <= r - 1; j++) {
+        if ((recordBaseAddr + j)->min < pivot) {
+            i++;
+            swap(recordBaseAddr + i, recordBaseAddr + j);
+        }
+    }
+    swap(recordBaseAddr + i + 1, recordBaseAddr + r);
 
-//     // initialize Wn in dram
-//     if (naturalBlockNum < naturalRuns->size()) {
-//         naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
-//         for (int i = 0; i < block_size; i++) {
-//             (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
-//             (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
-//         }
-//         quickSortMedian<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
-//     }
+    // Returning the respective index
+    return (i + 1);
+}
 
-//     while (minMaxBlockNum != minMaxs->size() ) {
-//         //cout << "UnSorted Ws data" << endl;
-//         int dram_blocks = 0;
+template <typename T> // for montresSort
+void quickSortMinMax( T* recordBaseAddr, int l, int r) {
+    if (l < r)
+    {
+        int index = partitionMinMax(recordBaseAddr, l, r);
+        // Parallel sections
+        {
+            #pragma omp task default(none) firstprivate(recordBaseAddr,l,index)
+            {
+                // Evaluating the left half
+                quickSortMinMax(recordBaseAddr, l, index - 1);
+            }
+            #pragma omp task default(none) firstprivate(recordBaseAddr,r,index)
+            {
+                // Evaluating the right half
+                quickSortMinMax(recordBaseAddr, index + 1, r);
+            }
+        }
+    }
+}
 
-//         for (int i = 1; i <= memSize; i++) {
-//             if (minMaxBlockNum == minMaxs->size()) break;
-//             minMaxBaseAddr = recordBaseAddr + (*minMaxs)[minMaxBlockNum++].num * block_size;
-//             for (int j = 0; j < block_size; j++) {
-//                 (ptrBaseAddr + i * block_size + j) -> key = (minMaxBaseAddr + j)->key;
-//                 (ptrBaseAddr + i * block_size + j) -> recordPtr = (minMaxBaseAddr + j);
-//                 //cout << (ptrBaseAddr + i * block_size + j) -> key << endl;
-//             }
-//             dram_blocks++;
-//         }
+void findNaturalRun(int block_num, vector<MinMaxIndex>* naturalRuns, vector<MinMaxIndex>* minMaxs) {
+    vector<int>* tempResult;
+    vector<int>* naturalRunIndex = new vector<int>(); // temporal index store for natural runs
+    int s, t;
+    for (int i = 0; i < 100; i++) {
+        s = i;
+        tempResult = new vector<int>();
+        int j = i + 1;
+        while (j < block_num) {
+            (*tempResult).push_back(s);
+            for (; j < block_num; j++) {
+                t = j;
+                if ((*minMaxs)[t].min > (*minMaxs)[s].max) {
+                    s = t;
+                    break;
+                }
+            }
+        }
+        if ((*tempResult).size() >  (*naturalRunIndex).size()) {
+            naturalRunIndex = tempResult;
+        }
+    }
 
-//         quickSortMedian<KeyPtrPair>(ptrBaseAddr + block_size, 0, block_size * dram_blocks - 1); // 最后一次 memSize 没有满 待解决
-//         /*
-//         cout << "Sorted Ws data" << endl;
-//         for (int i = block_size; i < block_size*(1+memSize) ; i++) {
-//             //cout << i << endl;
-//             cout << (ptrBaseAddr + i) -> key << endl;
-//         }
-//         cout << endl; */
+    // save natural run indexs
+    for (int i = 0; i <(*naturalRunIndex).size(); i++ ) {
+        (*minMaxs)[(*naturalRunIndex)[i]].isNatural = true;
+        (*naturalRuns).push_back((*minMaxs)[(*naturalRunIndex)[i]]);
+        //cout << (*naturalRuns)[i].num << " "<< (*naturalRuns)[i].min << " " << (*naturalRuns)[i].max  << " " << (*naturalRuns)[i].isNatural << endl;
+    }
 
-//         nextMin = (*minMaxs)[minMaxBlockNum].min;
-//         // merge on fly
-//         int grp_num = sortedRuns -> size() + 2;
-//         int grp;
-//         int* grps = new int[grp_num]; // count sorted number in each group
-//         int* grp_sizes = new int[grp_num]; // total size of each group
-//         int count = 0; // number of sorted group in merge phase
-//         MinHeapNode* harr;
-//         harr = new MinHeapNode[grp_num];
-//         for (int i = 0; i < grp_num - 2; i++) {
-//             grps[i] = runCount[i];
-//         }
-//         grps[grp_num - 2] = 0;
-//         grps[grp_num - 1] = Wn;
+    // remove natural run block from MinMax Indexes
+    vector<MinMaxIndex>* minMaxs2 = new vector<MinMaxIndex>();
+    std::copy_if ((*minMaxs).begin(), (*minMaxs).end(), std::back_inserter(*(minMaxs2)), [](MinMaxIndex i){return i.isNatural == false;} );
+    (*minMaxs) = (*minMaxs2);
 
-//         for (int i = 0; i< sortedRuns -> size(); i++) {
-//             harr[i].key = ((*sortedRuns)[i] + runCount[i]) -> key;
-//             harr[i].recordPtr = ((*sortedRuns)[i] + runCount[i]) -> recordPtr;
-//             harr[i].groupNum = i;
-//         }
-//         // need modificatoin, if Wn == block_size, add INT64MAX as node for natural run
-//         harr[grp_num - 2].key = (ptrBaseAddr + Ws) -> key;
-//         harr[grp_num - 2].recordPtr = (ptrBaseAddr + Ws) -> recordPtr;
-//         harr[grp_num - 2].groupNum = grp_num - 2;
+    minMaxs2 -> clear();
+    tempResult -> clear();
+    naturalRunIndex -> clear();
+}
 
-//         if (Wn == block_size) {
-//             harr[grp_num - 1].key = INT64_MAX;
-//             harr[grp_num - 1].groupNum = grp_num - 1;
-//             count == 1;
-//         } else {
-//             //harr[grp_num - 1].key = INT64_MAX; //fix
-//             harr[grp_num - 1].key = (ptrBaseAddr + Wn) -> key;
-//             harr[grp_num - 1].recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
-//             harr[grp_num - 1].groupNum = grp_num - 1;
-//         }
-//         count = 1;
-//         MinHeap hp(harr, grp_num);
+template <typename T>
+void generateMinMaxIndex(Record *recordBaseAddr, T *ptrBaseAddr, int block_num, int block_size, vector<MinMaxIndex>* minMaxs, int thread_num) {
 
-//         grp_sizes[grp_num - 1] = block_size ;
-//         grp_sizes[grp_num - 2] = dram_blocks * block_size;
+    omp_set_dynamic(0);
+    #pragma omp parallel for num_threads(thread_num)
+    for (int i = 0; i < block_num; i++) {
+        int curr;
+        (*minMaxs)[i].min = INT64_MAX;
+        (*minMaxs)[i].max = 0;
+        (*minMaxs)[i].num = i;
+        (*minMaxs)[i].isNatural = false;
+        for (int j = 0; j < block_size; j++) {
+            curr = (recordBaseAddr + i * block_size + j)->key;
+            if (curr < (*minMaxs)[i].min) {
+                (*minMaxs)[i].min = curr;
+            }
+            if (curr > (*minMaxs)[i].max) {
+                (*minMaxs)[i].max = curr;
+            }
+        }
+    }
+    // #pragma omp parallel default(none) shared(minMaxs, block_num) num_threads(thread_num)
+    // {
+    //     #pragma omp single nowait
+    //     quickSortMinMax<MinMaxIndex>(&(*minMaxs)[0], 0, block_num-1);
+    // }
+    quickSortMinMax<MinMaxIndex>(&(*minMaxs)[0], 0, block_num-1);
 
-//         for (int i = 0; i < sortedRuns -> size(); i++) {
-//             grp_sizes[i] = runSize[i];
-//         }
-//         while (count != grp_num) {
-//             MinHeapNode root = hp.getMin();
-//             if (root.key >= nextMin) {
-//                 //cout << "merge on fly ends" << endl;
-//                 break;
-//             }
-//             (sortedBaseAddr + sortedNum) -> key = root.key;
-//             (sortedBaseAddr + sortedNum) -> recordPtr = root.recordPtr;
-//             sortedNum++;
-//             //numWrites += 1;
+    cout << "Done" << endl;
+    cout << (*minMaxs)[(*minMaxs).size()-1].min << endl;
+}
 
-//             // gets next node from group
-//             grp = root.groupNum;
-//             grps[grp]++;
-//             if (grps[grp] == grp_sizes[grp] && grp != grp_num - 1) {
-//                 //cout << "Group" << grp << " all merged" << endl;
-//                 root.key = INT64_MAX;
-//                 count++;
-//             } else {
-//                 if (grp == grp_num - 2) { // node from Ws
-//                     numWrites += 1;
-//                     root.key = (ptrBaseAddr + block_size + grps[grp]) -> key;
-//                     root.recordPtr = (ptrBaseAddr + block_size + grps[grp]) -> recordPtr;
-//                 } else if (grp == grp_num -1) { // node from Wn
-//                     numWrites += 1;
-//                     Wn++;
-//                     if (Wn == block_size) {
-//                         if (naturalBlockNum < naturalRuns->size()) {
-//                             naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
-//                             for (int i = 0; i < block_size; i++) {
-//                                 (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
-//                                 (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
-//                             }
-//                             quickSortMedian<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
-//                             Wn = 0;
-//                             grps[grp] = 0;
-//                             root.key = (ptrBaseAddr + grps[grp]) -> key;
-//                             root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
-//                         } else {
-//                             count++;
-//                             root.key = INT64_MAX;
-//                         }
-//                     } else {
-//                         root.key = (ptrBaseAddr + Wn) -> key;
-//                         root.recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
-//                     }
+template <typename T>
+void montresSort(Record *recordBaseAddr, T *ptrBaseAddr, T *sortedBaseAddr, int total_num, int mem_num, int thread_num) {
 
-//                 } else { // node from previous sorted runs
-//                     root.key = ((*sortedRuns)[grp] + grps[grp]) -> key;
-//                     root.recordPtr = ((*sortedRuns)[grp] + grps[grp]) -> recordPtr;
-//                 }
-//             }
-//             root.groupNum = grp;
-//             hp.replaceMin(root);
+    int block_size = 512;
+    int block_num = total_num/block_size;
+    int numWrites = 0;
+    if (total_num % block_num != 0) block_num += 1;
+    vector<MinMaxIndex>* minMaxs = new vector<MinMaxIndex>();
+    minMaxs->resize(block_num);
+    vector<MinMaxIndex>* naturalRuns = new vector<MinMaxIndex>();
 
-//         }
+    // Generate MinMax Indexs
+    cout << "Generating Minmax Indexs..." << endl;
+    auto start_2 = high_resolution_clock::now();
+    generateMinMaxIndex(recordBaseAddr, ptrBaseAddr, block_num, block_size, minMaxs, thread_num);
+    auto stop_2 = high_resolution_clock::now();
+    auto duration_2= duration_cast<microseconds>(stop_2 - start_2);
+    cout << "Generating Minmax Indexs Time Used: " << duration_2.count() << "microseconds" << endl;
 
-//         /*
-//         cout << "Sorted Num:" <<sortedNum <<endl;
-//         for (int i = 0; i < sortedNum; i++) {
-//             cout << (sortedBaseAddr + i) -> key << endl;
-//         } */
+    // Find Natural Run
+    cout << "Finding Natural Run..." << endl;
+    start_2 = high_resolution_clock::now();
+    findNaturalRun(block_num, naturalRuns, minMaxs);
+    stop_2 = high_resolution_clock::now();
+    duration_2= duration_cast<microseconds>(stop_2 - start_2);
+    cout << "Find Natural Run Time Used: " << duration_2.count() << "microseconds" << endl;
 
-//         // update previous sorted run
-//         for (int i = 0; i < grp_num - 2; i++) {
-//             runCount[i] = grps[i];
-//             //cout << "runCount i:" << i << " " << runCount[i] << endl;
-//          }
 
-//         // save sorted run
-//         string runNameString(RUN_FILE_PATH_PREFIX);
-//         runNameString.append(to_string(runNum)); // name of sorted runs
-//         int cur_run_size = dram_blocks * block_size - grps[grp_num - 2];
-//         //cout << runNameString.c_str() << endl;
-//         //cout << cur_run_size << endl;
-//         KeyPtrPair* runBaseAddr;
+    // Run Generation
+    cout << "Run Generation..." << endl;
+    start_2 = high_resolution_clock::now();
+    static const char* RUN_FILE_PATH_PREFIX = "/optane/hanhua/RUNS";
+    int naturalBlockNum = 0; // block_num of naturalRunIndex
+    int minMaxBlockNum = 0; // block_num of minMaxs
+    int Wn = 0; // natural run element index in dram
+    int Ws = block_size; // minmax element index in dram
+    int runNum = 0; // current run num
+    int totalRunNum; // total number of sorted runs
+    int memSize = mem_num / block_size - 1; // dram block number for minMax blocks
+    int nextMin; // minimum value of next block
+    int sortedNum = 0; // number of sorted datas
 
-//         if (cur_run_size != 0) {
-//             runBaseAddr = allocateNVMRegion<KeyPtrPair>(cur_run_size*sizeof(KeyPtrPair), runNameString.c_str());
-//             pmem_memcpy_nodrain(runBaseAddr, ptrBaseAddr + block_size + grps[grp_num - 2], cur_run_size*sizeof(KeyPtrPair));
-//             //numWrites += cur_run_size;
-//             sortedRuns->push_back(runBaseAddr);
-//             runSize[runNum] = cur_run_size;
-//             //cout << "Run " << runNum << " is empty" <<endl;
-//         } else {
-//             runBaseAddr = allocateNVMRegion<KeyPtrPair>(1 * sizeof(KeyPtrPair), runNameString.c_str());
-//             //pmem_memcpy_nodrain(runBaseAddr, ptrBaseAddr + block_size + grps[grp_num - 2], cur_run_size*sizeof(KeyPtrPair));
-//             sortedRuns->push_back(runBaseAddr);
-//             runSize[runNum] = cur_run_size;
-//         }
-//         /*
-//         cout << runNameString.c_str() << endl;
-//         for (int i = 0; i < cur_run_size; i++) {
-//             cout << (runBaseAddr + i) -> key << " ";
-//         }
-//         cout << endl;
-//         cout << endl;  */
-//         runNum++;
-//     }
-//     cout << "Done" << endl;
-//     stop_2 = high_resolution_clock::now();
-//     duration_2= duration_cast<microseconds>(stop_2 - start_2);\
-//     cout << "Run Generation Time Used: " << duration_2.count() << "microseconds" << endl;
+    Record* naturalBaseAddr;
+    Record* minMaxBaseAddr;
+    vector<KeyPtrPair*> *sortedRuns = new vector<KeyPtrPair*>(); // store pointers to sorted runs
+    totalRunNum = minMaxs -> size() / memSize;
+    if (minMaxs -> size() % memSize != 0) totalRunNum += 1;
+    int* runSize = new int[totalRunNum]; // size of generated sorted run
+    int* runCount = new int[totalRunNum]; // count merged number in each sorted run;
+    for (int i = 0; i < totalRunNum; i++) {
+        runSize[i] = 0;
+        runCount[i] = 0;
+    }
+    //cout <<" size " << totalRunNum  << " " << minMaxs -> size() << " " << memSize << endl;
 
-//     // Merge Phase
-//     cout << "Run Merging..." << endl;
-//     start_2 = high_resolution_clock::now();
-//     int grp_num = sortedRuns -> size() + 1;
-//     bool natural = false;
-//     int grp;
-//     int* grps = new int[grp_num]; // count sorted number in each group
-//     int* grp_sizes = new int[grp_num];
-//     int count = 0; // number of sorted group in merge phase
-//     if (Wn != block_size) {
-//         natural = true;
-//     }
-//     //natural = false; //fix
-//     if (!natural) count += 1;
-//     for (int i = 0; i < sortedRuns -> size(); i++) {
-//         grp_sizes[i] = runSize[i];
-//         grps[i] = runCount[i];
-//     }
-//     //grp_sizes[grp_num - 1] = 0; // fix
-//     grp_sizes[grp_num - 1] = block_size;
-//     grps[grp_num - 1] = Wn;
+    // initialize Wn in dram
+    if (naturalBlockNum < naturalRuns->size()) {
+        naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
+        for (int i = 0; i < block_size; i++) {
+            (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
+            (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
+        }
+        quickSortMedian<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
+    }
 
-//     MinHeapNode* harr;
-//     harr = new MinHeapNode[grp_num];
-//     for (int i = 0; i< sortedRuns -> size(); i++) {
-//         if (grps[i] < grp_sizes[i]) {
-//             harr[i].key = ((*sortedRuns)[i] + runCount[i]) -> key;
-//             harr[i].recordPtr = ((*sortedRuns)[i] + runCount[i]) -> recordPtr;
-//             harr[i].groupNum = i;
-//         } else {
-//             harr[i].key = INT64_MAX;
-//             harr[i].groupNum = i;
-//             count++;
-//         }
-//     }
+    while (minMaxBlockNum != minMaxs->size() ) {
+        //cout << "UnSorted Ws data" << endl;
+        int dram_blocks = 0;
 
-//     if (natural) {
-//         harr[grp_num - 1].key = (ptrBaseAddr + Wn) -> key;
-//         harr[grp_num - 1].recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
-//         harr[grp_num - 1].groupNum = grp_num - 1;
-//     } else {
-//         harr[grp_num - 1].key = INT64_MAX;
-//         harr[grp_num - 1].groupNum = grp_num - 1;
-//     }
+        for (int i = 1; i <= memSize; i++) {
+            if (minMaxBlockNum == minMaxs->size()) break;
+            minMaxBaseAddr = recordBaseAddr + (*minMaxs)[minMaxBlockNum++].num * block_size;
+            for (int j = 0; j < block_size; j++) {
+                (ptrBaseAddr + i * block_size + j) -> key = (minMaxBaseAddr + j)->key;
+                (ptrBaseAddr + i * block_size + j) -> recordPtr = (minMaxBaseAddr + j);
+                //cout << (ptrBaseAddr + i * block_size + j) -> key << endl;
+            }
+            dram_blocks++;
+        }
 
-//     MinHeap hp(harr, grp_num);
-//     while (count != grp_num) {
-//         MinHeapNode root = hp.getMin();
+        quickSortMedian<KeyPtrPair>(ptrBaseAddr + block_size, 0, block_size * dram_blocks - 1); // 最后一次 memSize 没有满 待解决
+        /*
+        cout << "Sorted Ws data" << endl;
+        for (int i = block_size; i < block_size*(1+memSize) ; i++) {
+            //cout << i << endl;
+            cout << (ptrBaseAddr + i) -> key << endl;
+        }
+        cout << endl; */
 
-//         (sortedBaseAddr + sortedNum) -> key = root.key;
-//         (sortedBaseAddr + sortedNum) -> recordPtr = root.recordPtr;
-//         sortedNum++;
-//         //numWrites++;
+        nextMin = (*minMaxs)[minMaxBlockNum].min;
+        // merge on fly
+        int grp_num = sortedRuns -> size() + 2;
+        int grp;
+        int* grps = new int[grp_num]; // count sorted number in each group
+        int* grp_sizes = new int[grp_num]; // total size of each group
+        int count = 0; // number of sorted group in merge phase
+        MinHeapNode* harr;
+        harr = new MinHeapNode[grp_num];
+        for (int i = 0; i < grp_num - 2; i++) {
+            grps[i] = runCount[i];
+        }
+        grps[grp_num - 2] = 0;
+        grps[grp_num - 1] = Wn;
 
-//         // gets next node from group
-//         grp = root.groupNum;
-//         grps[grp]++;
+        for (int i = 0; i< sortedRuns -> size(); i++) {
+            harr[i].key = ((*sortedRuns)[i] + runCount[i]) -> key;
+            harr[i].recordPtr = ((*sortedRuns)[i] + runCount[i]) -> recordPtr;
+            harr[i].groupNum = i;
+        }
+        // need modificatoin, if Wn == block_size, add INT64MAX as node for natural run
+        harr[grp_num - 2].key = (ptrBaseAddr + Ws) -> key;
+        harr[grp_num - 2].recordPtr = (ptrBaseAddr + Ws) -> recordPtr;
+        harr[grp_num - 2].groupNum = grp_num - 2;
 
-//         /*
-//         cout << "nextMin" << nextMin << " SortedNum: " << sortedNum << endl;
-//         cout << "root: " << root.key << endl;
-//         cout << "root grp: " << root.groupNum << endl;
-//         cout << naturalBlockNum << endl;
-//         cout << Wn << endl;
-//         cout << grp << endl;
-//         cout << "size"<<grp_sizes[grp] <<endl;
-//         //cout << naturalRuns->size() << endl;
-//         cout << count << " group num:"<< grp_num << " merged grp num:"<< grps[grp] << endl;
-//         */
+        if (Wn == block_size) {
+            harr[grp_num - 1].key = INT64_MAX;
+            harr[grp_num - 1].groupNum = grp_num - 1;
+            count == 1;
+        } else {
+            //harr[grp_num - 1].key = INT64_MAX; //fix
+            harr[grp_num - 1].key = (ptrBaseAddr + Wn) -> key;
+            harr[grp_num - 1].recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
+            harr[grp_num - 1].groupNum = grp_num - 1;
+        }
+        count = 1;
+        MinHeap hp(harr, grp_num);
 
-//         if (grps[grp] == grp_sizes[grp] && grp != grp_num - 1) {
-//             //cout << "Group" << grp << " all merged" << endl;
-//             root.key = INT64_MAX;
-//             count++;
-//         } else {
-//             if (grp == grp_num -1) { // node from Wn
-//                 Wn++;
-//                 if (Wn == block_size) {
-//                     if (naturalBlockNum < naturalRuns->size()) {
-//                         naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
-//                         for (int i = 0; i < block_size; i++) {
-//                             (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
-//                             (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
-//                         }
-//                         quickSort<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
-//                         Wn = 0;
-//                         grps[grp] = 0;
-//                         root.key = (ptrBaseAddr + grps[grp]) -> key;
-//                         root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
-//                     } else {
-//                         count++;
-//                         root.key = INT64_MAX;
-//                     }
-//                 } else {
-//                     root.key = (ptrBaseAddr + grps[grp]) -> key;
-//                     root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
-//                 }
+        grp_sizes[grp_num - 1] = block_size ;
+        grp_sizes[grp_num - 2] = dram_blocks * block_size;
 
-//             } else { // node from previous sorted runs
-//                 root.key = ((*sortedRuns)[grp] + grps[grp]) -> key;
-//                 root.recordPtr = ((*sortedRuns)[grp] + grps[grp]) -> recordPtr;
-//             }
-//         }
-//         hp.replaceMin(root);
-//     }
-//     cout << sortedNum << endl;
-//     cout << "Done" << endl;
-//     stop_2 = high_resolution_clock::now();
-//     duration_2= duration_cast<microseconds>(stop_2 - start_2);\
-//     cout << "Run Merge Time Used: " << duration_2.count() << "microseconds" << endl;
-//     cout << "Number of merge-on-fly writes: " << numWrites << endl;
-//     /*
-//     cout << count << endl;
-//     cout << "Sorted Num:" <<sortedNum <<endl;
-//     for (int i = 0; i < sortedNum; i++) {
-//         cout << (sortedBaseAddr + i) -> key << endl;
-//     }
-//     */
-//     return;
-// }
+        for (int i = 0; i < sortedRuns -> size(); i++) {
+            grp_sizes[i] = runSize[i];
+        }
+        while (count != grp_num) {
+            MinHeapNode root = hp.getMin();
+            if (root.key >= nextMin) {
+                //cout << "merge on fly ends" << endl;
+                break;
+            }
+            (sortedBaseAddr + sortedNum) -> key = root.key;
+            (sortedBaseAddr + sortedNum) -> recordPtr = root.recordPtr;
+            sortedNum++;
+            //numWrites += 1;
+
+            // gets next node from group
+            grp = root.groupNum;
+            grps[grp]++;
+            if (grps[grp] == grp_sizes[grp] && grp != grp_num - 1) {
+                //cout << "Group" << grp << " all merged" << endl;
+                root.key = INT64_MAX;
+                count++;
+            } else {
+                if (grp == grp_num - 2) { // node from Ws
+                    numWrites += 1;
+                    root.key = (ptrBaseAddr + block_size + grps[grp]) -> key;
+                    root.recordPtr = (ptrBaseAddr + block_size + grps[grp]) -> recordPtr;
+                } else if (grp == grp_num -1) { // node from Wn
+                    numWrites += 1;
+                    Wn++;
+                    if (Wn == block_size) {
+                        if (naturalBlockNum < naturalRuns->size()) {
+                            naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
+                            for (int i = 0; i < block_size; i++) {
+                                (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
+                                (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
+                            }
+                            quickSortMedian<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
+                            Wn = 0;
+                            grps[grp] = 0;
+                            root.key = (ptrBaseAddr + grps[grp]) -> key;
+                            root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
+                        } else {
+                            count++;
+                            root.key = INT64_MAX;
+                        }
+                    } else {
+                        root.key = (ptrBaseAddr + Wn) -> key;
+                        root.recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
+                    }
+
+                } else { // node from previous sorted runs
+                    root.key = ((*sortedRuns)[grp] + grps[grp]) -> key;
+                    root.recordPtr = ((*sortedRuns)[grp] + grps[grp]) -> recordPtr;
+                }
+            }
+            root.groupNum = grp;
+            hp.replaceMin(root);
+
+        }
+
+        /*
+        cout << "Sorted Num:" <<sortedNum <<endl;
+        for (int i = 0; i < sortedNum; i++) {
+            cout << (sortedBaseAddr + i) -> key << endl;
+        } */
+
+        // update previous sorted run
+        for (int i = 0; i < grp_num - 2; i++) {
+            runCount[i] = grps[i];
+            //cout << "runCount i:" << i << " " << runCount[i] << endl;
+         }
+
+        // save sorted run
+        string runNameString(RUN_FILE_PATH_PREFIX);
+        runNameString.append(to_string(runNum)); // name of sorted runs
+        int cur_run_size = dram_blocks * block_size - grps[grp_num - 2];
+        //cout << runNameString.c_str() << endl;
+        //cout << cur_run_size << endl;
+        KeyPtrPair* runBaseAddr;
+
+        if (cur_run_size != 0) {
+            runBaseAddr = allocateNVMRegion<KeyPtrPair>(cur_run_size*sizeof(KeyPtrPair), runNameString.c_str());
+            pmem_memcpy_nodrain(runBaseAddr, ptrBaseAddr + block_size + grps[grp_num - 2], cur_run_size*sizeof(KeyPtrPair));
+            //numWrites += cur_run_size;
+            sortedRuns->push_back(runBaseAddr);
+            runSize[runNum] = cur_run_size;
+            //cout << "Run " << runNum << " is empty" <<endl;
+        } else {
+            runBaseAddr = allocateNVMRegion<KeyPtrPair>(1 * sizeof(KeyPtrPair), runNameString.c_str());
+            //pmem_memcpy_nodrain(runBaseAddr, ptrBaseAddr + block_size + grps[grp_num - 2], cur_run_size*sizeof(KeyPtrPair));
+            sortedRuns->push_back(runBaseAddr);
+            runSize[runNum] = cur_run_size;
+        }
+        /*
+        cout << runNameString.c_str() << endl;
+        for (int i = 0; i < cur_run_size; i++) {
+            cout << (runBaseAddr + i) -> key << " ";
+        }
+        cout << endl;
+        cout << endl;  */
+        runNum++;
+    }
+    cout << "Done" << endl;
+    stop_2 = high_resolution_clock::now();
+    duration_2= duration_cast<microseconds>(stop_2 - start_2);\
+    cout << "Run Generation Time Used: " << duration_2.count() << "microseconds" << endl;
+
+    // Merge Phase
+    cout << "Run Merging..." << endl;
+    start_2 = high_resolution_clock::now();
+    int grp_num = sortedRuns -> size() + 1;
+    bool natural = false;
+    int grp;
+    int* grps = new int[grp_num]; // count sorted number in each group
+    int* grp_sizes = new int[grp_num];
+    int count = 0; // number of sorted group in merge phase
+    if (Wn != block_size) {
+        natural = true;
+    }
+    //natural = false; //fix
+    if (!natural) count += 1;
+    for (int i = 0; i < sortedRuns -> size(); i++) {
+        grp_sizes[i] = runSize[i];
+        grps[i] = runCount[i];
+    }
+    //grp_sizes[grp_num - 1] = 0; // fix
+    grp_sizes[grp_num - 1] = block_size;
+    grps[grp_num - 1] = Wn;
+
+    MinHeapNode* harr;
+    harr = new MinHeapNode[grp_num];
+    for (int i = 0; i< sortedRuns -> size(); i++) {
+        if (grps[i] < grp_sizes[i]) {
+            harr[i].key = ((*sortedRuns)[i] + runCount[i]) -> key;
+            harr[i].recordPtr = ((*sortedRuns)[i] + runCount[i]) -> recordPtr;
+            harr[i].groupNum = i;
+        } else {
+            harr[i].key = INT64_MAX;
+            harr[i].groupNum = i;
+            count++;
+        }
+    }
+
+    if (natural) {
+        harr[grp_num - 1].key = (ptrBaseAddr + Wn) -> key;
+        harr[grp_num - 1].recordPtr = (ptrBaseAddr + Wn) -> recordPtr;
+        harr[grp_num - 1].groupNum = grp_num - 1;
+    } else {
+        harr[grp_num - 1].key = INT64_MAX;
+        harr[grp_num - 1].groupNum = grp_num - 1;
+    }
+
+    MinHeap hp(harr, grp_num);
+    while (count != grp_num) {
+        MinHeapNode root = hp.getMin();
+
+        (sortedBaseAddr + sortedNum) -> key = root.key;
+        (sortedBaseAddr + sortedNum) -> recordPtr = root.recordPtr;
+        sortedNum++;
+        //numWrites++;
+
+        // gets next node from group
+        grp = root.groupNum;
+        grps[grp]++;
+
+        /*
+        cout << "nextMin" << nextMin << " SortedNum: " << sortedNum << endl;
+        cout << "root: " << root.key << endl;
+        cout << "root grp: " << root.groupNum << endl;
+        cout << naturalBlockNum << endl;
+        cout << Wn << endl;
+        cout << grp << endl;
+        cout << "size"<<grp_sizes[grp] <<endl;
+        //cout << naturalRuns->size() << endl;
+        cout << count << " group num:"<< grp_num << " merged grp num:"<< grps[grp] << endl;
+        */
+
+        if (grps[grp] == grp_sizes[grp] && grp != grp_num - 1) {
+            //cout << "Group" << grp << " all merged" << endl;
+            root.key = INT64_MAX;
+            count++;
+        } else {
+            if (grp == grp_num -1) { // node from Wn
+                Wn++;
+                if (Wn == block_size) {
+                    if (naturalBlockNum < naturalRuns->size()) {
+                        naturalBaseAddr = recordBaseAddr + (*naturalRuns)[naturalBlockNum++].num * block_size;
+                        for (int i = 0; i < block_size; i++) {
+                            (ptrBaseAddr + i) -> key = (naturalBaseAddr + i)->key;
+                            (ptrBaseAddr + i) -> recordPtr = (naturalBaseAddr + i);
+                        }
+                        quickSort<KeyPtrPair>(ptrBaseAddr, 0, block_size - 1);
+                        Wn = 0;
+                        grps[grp] = 0;
+                        root.key = (ptrBaseAddr + grps[grp]) -> key;
+                        root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
+                    } else {
+                        count++;
+                        root.key = INT64_MAX;
+                    }
+                } else {
+                    root.key = (ptrBaseAddr + grps[grp]) -> key;
+                    root.recordPtr = (ptrBaseAddr + grps[grp]) -> recordPtr;
+                }
+
+            } else { // node from previous sorted runs
+                root.key = ((*sortedRuns)[grp] + grps[grp]) -> key;
+                root.recordPtr = ((*sortedRuns)[grp] + grps[grp]) -> recordPtr;
+            }
+        }
+        hp.replaceMin(root);
+    }
+    cout << sortedNum << endl;
+    cout << "Done" << endl;
+    stop_2 = high_resolution_clock::now();
+    duration_2= duration_cast<microseconds>(stop_2 - start_2);\
+    cout << "Run Merge Time Used: " << duration_2.count() << "microseconds" << endl;
+    cout << "Number of merge-on-fly writes: " << numWrites << endl;
+    return;
+}
 
 
 /* */

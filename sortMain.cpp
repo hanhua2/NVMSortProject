@@ -22,6 +22,7 @@
 #include "Utils/HelpFunctions.h"
 #include "Utils/paradis.h"
 #include "sortMethod.h"
+#include "SortMethodCount.h" 
 
 using namespace std;
 using namespace std::chrono;
@@ -31,6 +32,8 @@ using namespace std::chrono;
 void convertToPtrDram(Record* recordBaseAddr, KeyPtrPair* ptrBaseAddr, long long numKeys);
 void convertToPtrNVM(Record* recordBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys);
 void savePtrToNVM(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys);
+void readDataDram(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys); 
+void readDataNVM(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys);
 
 int main(int argc, char* argv[]) {
 
@@ -41,47 +44,41 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    //const char* pfilepaths[3] = {"/optane/hanhua/UNSORTED_KEYS4M", "/optane/hanhua/UNSORTED_KEYS16M", "/optane/hanhua/UNSORTED_KEYS25G"};
-    const char* pfilepaths[3] = {"/optane/hanhua/UNSORTED_KEYSTEST", "/optane/hanhua/UNSORTED_KEYS0.25G", "/optane/hanhua/UNSORTED_KEYS2.5G"};
-    long long keySizes[3] = {25, 16777216, 167772160};
+    /* address of unsorted data*/
 
-    int data = atol(argv[1]);
-    bool useDram = atol(argv[2]);
+    const char* pfilepath = "/optane/hanhua/UNSORTED_KEYS";
+
+
+    bool useDRAM = atol(argv[1]);
+    long long numKeys = atol(argv[2]);
     int sortMethod = atol(argv[3]);
 
-    long long numKeys = keySizes[data];
     long long targetLength = numKeys * sizeof(Record);
     int numThreads = 1;
 
-    const char* pfilepath = pfilepaths[data];
-    const char* temppath = "/optane/hanhua/SORTED/TEMP";
     const char* sortedpath = "/optane/hanhua/SORTED/SORTED_KEYS";
     const char* sortedpatht = "/optane/hanhua/SORTED/SORTED_KEYS_TEMP";
 
-    Record* recordBaseAddr; // initial key-value data in NVM
-    KeyPtrPair* sortedBaseAddr; // sorted key-pointer in NVM
-    KeyPtrPair* ptrBaseAddr; // temporary key-pointer in DRAM
-    KeyPtrPair* sortedBaseAddrTemp = allocateNVMRegion<KeyPtrPair>(numKeys*sizeof(KeyPtrPair), sortedpatht); // extra space to store key-ptr in NVM for external sort
+    Record* recordBaseAddr; // place of unsorted data in NVM
+    KeyPtrPair* sortedBaseAddr; // place to store sorted key-pointer in NVM
+    KeyPtrPair* ptrBaseAddr; // place to store temporary key-pointer in DRAM
 
-    long long mem_num = numKeys /100*1.1;
+    KeyPtrPair* sortedBaseAddrTemp = allocateNVMRegion<KeyPtrPair>(numKeys * sizeof(KeyPtrPair), sortedpatht); // extra space to store key-ptr in NVM for external sort
+
+    long long mem_num = numKeys /16*1.01;
     if (sortMethod != 3 && sortMethod != 4 && sortMethod != 10 && sortMethod != 11) mem_num = numKeys;
-    //vector<KeyPtrPair> *dramBase = new vector<KeyPtrPair>();
-    //dramBase->resize(mem_num);
-    //ptrBaseAddr = &(*dramBase)[0];
 
     ptrBaseAddr = new KeyPtrPair[mem_num];
-    //ptrBaseAddr = allocateNVMRegion<KeyPtrPair>(mem_num * sizeof(KeyPtrPair), temppath);
-
 
     recordBaseAddr = allocateNVMRegion<Record>(targetLength, pfilepath);
-    sortedBaseAddr = allocateNVMRegion<KeyPtrPair>(numKeys*sizeof(KeyPtrPair), sortedpath);
+    sortedBaseAddr = allocateNVMRegion<KeyPtrPair>(numKeys * sizeof(KeyPtrPair), sortedpath);
+
+    memset(sortedBaseAddr, 0, numKeys * sizeof(KeyPtrPair));
 
     if (sortMethod != 3 && sortMethod != 4 && sortMethod != 10 && sortMethod != 11) {
-        if (useDram) {
-            cout << "convert to dram" << endl;
+        if (useDRAM) {
             convertToPtrDram(recordBaseAddr, ptrBaseAddr, numKeys);
         } else {
-            cout << "convert to nvm" << endl;
             convertToPtrNVM(recordBaseAddr, sortedBaseAddr, numKeys);
         }
     }
@@ -90,17 +87,19 @@ int main(int argc, char* argv[]) {
     auto start_1 = high_resolution_clock::now();
     switch (sortMethod) {
     case 1:
-        if (useDram) {
+        if (useDRAM) {
             cout << "quickSort in dram" << endl;
-            quickSort<KeyPtrPair>(ptrBaseAddr, numKeys);
+            quickSortParl<KeyPtrPair>(ptrBaseAddr, numKeys, numThreads);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
+            //readDataDram(ptrBaseAddr, sortedBaseAddr, numKeys);
         } else {
             cout << "quickSort in nvm" << endl;
-            quickSort<KeyPtrPair>(sortedBaseAddr, numKeys);
+            quickSortParl<KeyPtrPair>(sortedBaseAddr, numKeys, numThreads);
+            //readDataNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
         }
         break;
     case 2:
-        if (useDram) {
+        if (useDRAM) {
             cout << "mergeSort in dram" << endl;
             mergeSort<KeyPtrPair>(ptrBaseAddr, numKeys);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
@@ -119,40 +118,50 @@ int main(int argc, char* argv[]) {
         break;
     case 5:
         cout << "montresSort" << endl;
-        //montresSort<KeyPtrPair>(recordBaseAddr, ptrBaseAddr, sortedBaseAddr, numKeys, mem_num, numThreads);
+        montresSort<KeyPtrPair>(recordBaseAddr, ptrBaseAddr, sortedBaseAddr, numKeys, mem_num, numThreads);
         break;
     case 6:
-        cout << "sequential splitSort" << endl;
+        if (useDRAM) {
+            cout << "heapSort in dram" << endl;
+            heapSort<KeyPtrPair>(ptrBaseAddr, numKeys);
+            savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
+        } else {
+            cout << "heapSort in nvm" << endl;
+            heapSort<KeyPtrPair>(sortedBaseAddr, numKeys);
+        }
         break;
     case 7:
-        if (useDram) {
+        if (useDRAM) {
             cout << "sequentail paradisSort in dram" << endl;
             PARADIS(ptrBaseAddr, ptrBaseAddr + numKeys, numThreads);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
+            //readDataDram(ptrBaseAddr, sortedBaseAddr, numKeys);
         } else {
             cout << "sequentail paradisSort in nvm" << endl;
             PARADIS(sortedBaseAddr, sortedBaseAddr + numKeys, numThreads);
         }
     case 8:
-        numThreads = 8;
-        if (useDram) {
+        numThreads = 1;
+        if (useDRAM) {
             cout << "parallel quickSort in dram" << endl;
             quickSortParl<KeyPtrPair>(ptrBaseAddr, numKeys, numThreads);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
+            //readDataDram(ptrBaseAddr, sortedBaseAddr, numKeys);
         } else {
             cout << "parallel quickSort in nvm" << endl;
             quickSortParl<KeyPtrPair>(sortedBaseAddr, numKeys, numThreads);
+            //readDataNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
         }
         break;
     case 9:
-        numThreads = 8;
-        if (useDram) {
+        numThreads = 32;
+        if (useDRAM) {
             cout << "parallel mergeSort in dram" << endl;
-            mergeSortParl<KeyPtrPair>(ptrBaseAddr, numKeys, numThreads);
+            mergeSortParl<KeyPtrPair>(ptrBaseAddr, numKeys, numThreads, sortedBaseAddrTemp, true);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
         } else {
             cout << "paralle mergeSort in nvm" << endl;
-            mergeSortParl<KeyPtrPair>(sortedBaseAddr, numKeys, numThreads);
+            mergeSortParl<KeyPtrPair>(sortedBaseAddr, numKeys, numThreads, sortedBaseAddrTemp, false);
         }
         break;    
     case 10:
@@ -165,15 +174,17 @@ int main(int argc, char* argv[]) {
         numThreads = 8;
         cout << "parallel externalMergeSort" << endl;
         sortedBaseAddr = externalMergeSort<KeyPtrPair>(recordBaseAddr, ptrBaseAddr, sortedBaseAddr, sortedBaseAddrTemp, numKeys, mem_num, numThreads);
+        //readDataNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
         break;  
     case 12:
         break;
     case 13:
         numThreads = 16;
-        if (useDram) {
+        if (useDRAM) {
             cout << "parallel paradisSort in dram" << endl;
             PARADIS(ptrBaseAddr, ptrBaseAddr + numKeys, numThreads);
             savePtrToNVM(ptrBaseAddr, sortedBaseAddr, numKeys);
+            //readDataDram(ptrBaseAddr, sortedBaseAddr, numKeys);
         } else {
             cout << "parallel paradisSort in nvm" << endl;
             PARADIS(sortedBaseAddr, sortedBaseAddr + numKeys, numThreads);
@@ -184,16 +195,26 @@ int main(int argc, char* argv[]) {
     auto stop_1 = high_resolution_clock::now();
     auto duration_1= duration_cast<microseconds>(stop_1 - start_1);
     cout << "Sort Time Used: " << duration_1.count() << "microseconds" << endl; 
+    
+    // auto start_3 = high_resolution_clock::now();
+    // for (int i = 0; i < numKeys; i++) {
+    //     auto key = (sortedBaseAddrTemp2 + i)->key;
+    //     auto val = (sortedBaseAddrTemp2 + i)->value;
+    // }
+ 
+    // auto stop_3 = high_resolution_clock::now();
+    // auto duration_3= duration_cast<microseconds>(stop_3 - start_3);
+    // cout << "Read key-value time: " << duration_3.count() << "mic roseconds" << endl;
 
 #if CHECK_SORTED
     cout << "Working... Verifying sorted keys\n";
     bool sorted = true;
-    for (int i = 0; i < numKeys; i++) {
-        if (i < 10 && i >= 0 ) cout << "i: " << i << " value: " <<(sortedBaseAddr + i)->key << endl;
-        if ((sortedBaseAddr + i)->key != i + 1) {
-            cout << i << endl;
-            cout << (sortedBaseAddr + i)->key << endl;
-            cout << (sortedBaseAddr + i+1)->key << endl;;
+    for (int i = 0; i < numKeys - 1; i++) {
+        //if (i < 10 && i >= 0 ) cout << "i: " << i << " value: " <<(sortedBaseAddr + i)->key << endl;
+        if ((sortedBaseAddr + i)->key >= (sortedBaseAddr + i + 1)->key) {
+            // cout << i << endl;
+            // cout << (sortedBaseAddr + i)->key << endl;
+            // cout << (sortedBaseAddr + i+1)->key << endl;;
             cout << "Not sorted" << endl;
             sorted = false;
             break;
@@ -238,6 +259,36 @@ void savePtrToNVM(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long
     for (int i = 0; i < numKeys; i++) {
         (sortedBaseAddr + i)->key = (ptrBaseAddr + i)->key;
         (sortedBaseAddr + i)->recordPtr = (ptrBaseAddr + i)->recordPtr;
+    }
+    auto stop3 = high_resolution_clock::now();
+    auto duration3 = duration_cast<microseconds>(stop3 - start3);
+    cout << "Time Used: " << duration3.count() << "microseconds" << endl;   
+}
+
+void readDataDram(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys) {
+    auto start3 = high_resolution_clock::now();
+
+    Record* resBaseAddr = new Record[numKeys];
+    cout << "Convert to key-value in dram" << endl;
+    #pragma omp parallel for num_threads(8)
+    for (int i = 0; i < numKeys; i++) {
+        (resBaseAddr + i)->key = (ptrBaseAddr + i)->key;
+        (resBaseAddr + i)->value = (*((ptrBaseAddr + i)->recordPtr)).value;
+    }
+    auto stop3 = high_resolution_clock::now();
+    auto duration3 = duration_cast<microseconds>(stop3 - start3);
+    cout << "Time Used: " << duration3.count() << "microseconds" << endl;   
+}
+
+void readDataNVM(KeyPtrPair* ptrBaseAddr, KeyPtrPair* sortedBaseAddr, long long numKeys) {
+    auto start3 = high_resolution_clock::now();
+
+    Record* resBaseAddr = new Record[numKeys];
+    cout << "Convert to key-value in nvm" << endl;
+    #pragma omp parallel for num_threads(8)
+    for (int i = 0; i < numKeys; i++) {
+        (resBaseAddr + i)->key = (sortedBaseAddr + i)->key;
+        (resBaseAddr + i)->value = (*((sortedBaseAddr + i)->recordPtr)).value;
     }
     auto stop3 = high_resolution_clock::now();
     auto duration3 = duration_cast<microseconds>(stop3 - start3);
