@@ -618,63 +618,36 @@ void adjust(T* b,int* ls,int s,int k)
     //cout << "ls[0] : " << s << endl;
 }
 
-
-
-/**
- * arry:多路归并的所有数据
- * b:存放多路归并的首地址数组
- * ls:败者树数组
- * k:几路归并
- */
 template <typename T>
 void createLoserTree(T *arry[], T* b,int* ls,int k)
 {
 
     for (int i = 0; i < k; ++i){
-        b[i].key = (arry[i] + 0)->key;//每一路的首元素进行赋予
+        b[i].key = (arry[i] + 0)->key;
         b[i].recordPtr = (arry[i] + 0)->recordPtr;
     }
-    //最后一个元素用于存放默认的最小值，用于刚开始的对比
+
     b[k].key = MINKEY;
 
-
-    //设置ls数组中败者的初始值，既b[k]最小值
     for (int i=0; i < k; i++) {
 
         ls[i] = k;
     }
 
-    //有k个叶子节点
-    //从最后一个叶子节点开始，沿着从叶子节点到根节点的路径调整
     for (int i = k - 1; i >= 0; --i){
         adjust(b, ls, i, k);
-        // for (int j = 0; j < k; j++) {
-        //     cout << ls[j] << " ";
-        // }
-        // cout << endl;
     }
-
-    // for (int i = 0; i < k; i ++) {
-    //     cout << ls[i] << endl;
-    // }
-
 }
 
-/**
- *多路归并操作
- */
 template <typename T>
 void kMerge(T* sortedBaseAddr, T* arr[], int* arrayCount, int k, int* ls, T* b)
 {
-
-    //index数组记录每一路读取的索引，
     int index[k];
     for (int i = 0; i < k; i++){
 
         index[i] = 0;
     }
 
-    //cout << "test1" << endl;
     int out_num = 0;
     while (b[ls[0]].key!=MAXKEY) {
 
